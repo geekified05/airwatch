@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirWatch — Live AQ & Traffic Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --surface: #111720;
+    --surface2: #1a2230;
+    --border: rgba(255,255,255,0.07);
+    --accent: #00e5a0;
+    --accent2: #ff6b35;
+    --accent3: #4fc3f7;
+    --text: #e8edf5;
+    --muted: #6b7a94;
+    --good: #00e5a0;
+    --moderate: #ffd54f;
+    --unhealthy: #ff6b35;
+    --very-unhealthy: #e040fb;
+    --font-head: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .brand-tag {
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+  }
+
+  .brand h1 {
+    font-family: var(--font-head);
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--text);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .brand h1 span { color: var(--accent); }
+
+  .brand-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .header-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(0,229,160,0.08);
+    border: 1px solid rgba(0,229,160,0.2);
+    padding: 6px 14px;
+    border-radius: 100px;
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  .last-updated {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Alert Banner */
+  .alert-banner {
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.75rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    border: 1px solid;
+    animation: fadeSlide 0.5s ease;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .alert-banner.good {
+    background: rgba(0,229,160,0.06);
+    border-color: rgba(0,229,160,0.2);
+    color: #a0f5d8;
+  }
+  .alert-banner.moderate {
+    background: rgba(255,213,79,0.06);
+    border-color: rgba(255,213,79,0.25);
+    color: #ffe082;
+  }
+  .alert-banner.unhealthy {
+    background: rgba(255,107,53,0.08);
+    border-color: rgba(255,107,53,0.25);
+    color: #ffab91;
+  }
+
+  .alert-icon { font-size: 20px; flex-shrink: 0; }
+  .alert-text strong { font-weight: 500; display: block; margin-bottom: 2px; }
+
+  /* Top metrics grid */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+
+  .metric-card:hover {
+    border-color: rgba(255,255,255,0.15);
+    transform: translateY(-2px);
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .metric-card.aqi-card::before { background: var(--accent); }
+  .metric-card.pm25-card::before { background: var(--accent3); }
+  .metric-card.pm10-card::before { background: #ba68c8; }
+  .metric-card.traffic-card::before { background: var(--accent2); }
+
+  .metric-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+  }
+
+  .metric-value {
+    font-family: var(--font-head);
+    font-size: 2.6rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+
+  .metric-card.aqi-card .metric-value { color: var(--accent); }
+  .metric-card.pm25-card .metric-value { color: var(--accent3); }
+  .metric-card.pm10-card .metric-value { color: #ba68c8; }
+  .metric-card.traffic-card .metric-value { color: var(--accent2); }
+
+  .metric-unit {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+
+  .metric-status {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-family: var(--font-mono);
+  }
+
+  .status-good { background: rgba(0,229,160,0.1); color: var(--good); }
+  .status-moderate { background: rgba(255,213,79,0.1); color: var(--moderate); }
+  .status-unhealthy { background: rgba(255,107,53,0.1); color: var(--unhealthy); }
+
+  /* Charts section */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  @media (max-width: 700px) {
+    .charts-row { grid-template-columns: 1fr; }
+    .brand h1 { font-size: 1.5rem; }
+    .metric-value { font-size: 2rem; }
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+  }
+
+  .chart-card.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .chart-title {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    letter-spacing: 0.01em;
+  }
+
+  .chart-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 1.1rem;
+  }
+
+  /* Research insight box */
+  .insight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .insight-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .insight-num {
+    font-family: var(--font-head);
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .insight-num.orange { color: var(--accent2); }
+  .insight-num.blue { color: var(--accent3); }
+
+  .insight-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* Hourly risk bar */
+  .risk-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .risk-title {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .risk-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  .risk-bars {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    height: 60px;
+    margin-bottom: 6px;
+  }
+
+  .risk-bar-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .risk-bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.3s ease;
+    cursor: default;
+    position: relative;
+  }
+
+  .risk-bar:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 105%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    border: 1px solid var(--border);
+  }
+
+  .risk-hour {
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .footer-left {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .footer-left strong { color: var(--text); }
+
+  .source-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    height: 1em;
+    width: 60%;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="brand">
+      <span class="brand-tag">&#9670; RTP Research Project — MGIT CSE</span>
+      <h1>Air<span>Watch</span></h1>
+      <p class="brand-sub">Traffic-correlated air quality monitoring · Kondapur–Gachibowli IT Corridor, Hyderabad</p>
+    </div>
+    <div class="header-meta">
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        LIVE DATA
+      </div>
+      <div class="last-updated" id="lastUpdated">Fetching latest...</div>
+    </div>
+  </header>
+
+  <!-- Alert Banner -->
+  <div class="alert-banner" id="alertBanner">
+    <span class="alert-icon">&#9432;</span>
+    <div class="alert-text">
+      <strong id="alertTitle">Loading advisory...</strong>
+      <span id="alertBody"></span>
+    </div>
+  </div>
+
+  <!-- Metric Cards -->
+  <div class="metrics-grid">
+    <div class="metric-card aqi-card">
+      <div class="metric-label">US AQI</div>
+      <div class="metric-value" id="valAQI">—</div>
+      <div class="metric-unit">Air Quality Index</div>
+      <span class="metric-status" id="statusAQI">—</span>
+    </div>
+    <div class="metric-card pm25-card">
+      <div class="metric-label">PM2.5</div>
+      <div class="metric-value" id="valPM25">—</div>
+      <div class="metric-unit">µg/m³ · Fine Particulate</div>
+      <span class="metric-status" id="statusPM25">—</span>
+    </div>
+    <div class="metric-card pm10-card">
+      <div class="metric-label">PM10</div>
+      <div class="metric-value" id="valPM10">—</div>
+      <div class="metric-unit">µg/m³ · Coarse Particulate</div>
+      <span class="metric-status" id="statusPM10">—</span>
+    </div>
+    <div class="metric-card traffic-card">
+      <div class="metric-label">Traffic</div>
+      <div class="metric-value" id="valTraffic">—</div>
+      <div class="metric-unit">Congestion Level</div>
+      <span class="metric-status" id="statusTraffic">—</span>
+    </div>
+  </div>
+
+  <!-- Hourly Risk Bar -->
+  <div class="risk-section">
+    <div class="risk-title">Hourly pollution risk profile (24 h average — based on all collected data)</div>
+    <div class="risk-sub" id="riskSubtitle">Loading observations...</div>
+    <div class="risk-bars" id="riskBars"></div>
+    <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#00e5a0;opacity:0.85;"></div>
+        Low risk — PM2.5 &lt; 25 µg/m³, low traffic
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#ffd54f;opacity:0.85;"></div>
+        Moderate risk — PM2.5 25–30 µg/m³ or medium traffic
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#ff6b35;opacity:0.85;"></div>
+        High risk — PM2.5 &gt; 30 µg/m³ or heavy traffic
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="chart-card full-width">
+      <div class="chart-title">PM2.5 &amp; Traffic Score — last 24 logged hours</div>
+      <div class="chart-subtitle">Multi-source averaged hourly values from RTP_Data-log</div>
+      <div style="position:relative;height:220px;">
+        <canvas id="trendChart" role="img" aria-label="Line chart of PM2.5 and traffic score over the last 24 hours">PM2.5 rises alongside traffic score during peak hours.</canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">PM2.5 by traffic level</div>
+      <div class="chart-subtitle">All-time average across all sources</div>
+      <div style="position:relative;height:200px;">
+        <canvas id="levelChart" role="img" aria-label="Bar chart showing PM2.5 rising from Low to Very High traffic">PM2.5 rises monotonically with traffic level.</canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Correlation — traffic vs pollutants</div>
+      <div class="chart-subtitle">Pearson r · all 914 observations</div>
+      <div style="position:relative;height:200px;">
+        <canvas id="corrChart" role="img" aria-label="Horizontal bar chart of Pearson correlation values for each pollutant">NO2 highest at 0.80, O3 inverse at -0.36.</canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Research insights -->
+  <div class="insight-grid">
+    <div class="insight-card">
+      <div class="insight-num">0.511</div>
+      <div class="insight-desc">Pearson r — traffic ratio vs PM2.5<br><em style="color:#4fc3f7">p &lt; 0.001 · statistically significant</em></div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-num orange">+55%</div>
+      <div class="insight-desc">PM2.5 increase from night off-peak (21 µg/m³) to evening peak (34 µg/m³)</div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-num blue">0.801</div>
+      <div class="insight-desc">Strongest correlation — traffic vs NO₂<br><em style="color:#4fc3f7">Direct vehicular emission marker</em></div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-num" style="color:#ba68c8">914</div>
+      <div class="insight-desc">Total observations · 5 sources · 22 days · Kondapur–Gachibowli area</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-left">
+      <strong>Srinivas Konala</strong> · 24261A05R0 · B.Tech CSE Sem 4 · MGIT Hyderabad<br>
+      Data sources updated every hour automatically · RTP Research Project 2025–26
+    </div>
+    <div class="source-pills">
+      <span class="pill">OpenWeatherMap</span>
+      <span class="pill">IQAir</span>
+      <span class="pill">AQINow</span>
+      <span class="pill">AQI.in</span>
+      <span class="pill">Plume Labs</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+// ── Configuration — REPLACE SHEET_ID with your actual Google Sheet ID ──
+// Your Sheet ID is the long string in the Google Sheets URL:
+// https://docs.google.com/spreadsheets/d/THIS_PART_HERE/edit
+const SHEET_ID = '1AyjctsoCt44G0Vlx11U5gkJVvFLG_cvgTGxGSUziK0U';
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&t=${Date.now()}`;
+
+// ── Show loading state ──
+function showLoading() {
+  document.getElementById('lastUpdated').textContent = 'Fetching live data...';
+  ['valAQI','valPM25','valPM10','valTraffic'].forEach(id => {
+    document.getElementById(id).textContent = '…';
+  });
+}
+
+// ── Parse CSV from Google Sheets public export ──
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const rows = [];
+  for (const line of lines) {
+    // Handle quoted fields
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    cols.push(cur.trim());
+    rows.push(cols);
+  }
+  return rows;
+}
+
+// ── Safe number parser ──
+function num(x) {
+  const v = parseFloat(x);
+  return isNaN(v) ? null : v;
+}
+
+// ── Process all rows into dashboard data ──
+function processData(rows) {
+  // Filter out header row (if any) and separator rows
+  const data = rows.filter(r =>
+    r.length >= 14 &&
+    r[0] !== 'Date' &&
+    r[0] !== '---' &&
+    r[0] !== '' &&
+    r[0] !== '\"Date\"'
+  );
+
+  if (data.length === 0) throw new Error('No valid data rows found.');
+
+  // Column indices: Date(0) Time(1) T_Ratio(2) T_Level(3) T_Score(4)
+  // PM25(5) PM10(6) SO2(7) NO2(8) CO(9) O3(10) TVOC(11) Noise(12) AQI(13) Source(14)
+
+  // ── Latest reading — use most recent hour's multi-source average ──
+  // Find the most recent date+hour key that has at least one valid PM2.5 row
+  // We do this AFTER building hourlyMap below, so we collect rows first.
+  // Temporarily collect all rows by date+hour to find the latest bucket.
+  const tempMap = {};
+  for (const r of data) {
+    const dateStr = r[0];
+    const timeStr = r[1] || '';
+    const hourMatch = timeStr.match(/^(\d{1,2}):/);
+    if (!dateStr || !hourMatch) continue;
+    const hour = parseInt(hourMatch[1]);
+    const key = dateStr + '_' + String(hour).padStart(2, '0');
+    if (!tempMap[key]) tempMap[key] = { date: dateStr, hour, time: timeStr, rows: [] };
+    tempMap[key].rows.push(r);
+  }
+  // Sort keys to find the most recent hour
+  const sortedKeys = Object.keys(tempMap).sort();
+  const latestKey  = sortedKeys[sortedKeys.length - 1];
+  const latestBucket = tempMap[latestKey];
+
+  // Average all valid source readings in that bucket
+  const avgVals = (rows, col) => {
+    const vals = rows.map(r => num(r[col])).filter(v => v !== null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const latestPM25  = avgVals(latestBucket.rows, 5);
+  const latestPM10  = avgVals(latestBucket.rows, 6);
+  const latestAQI   = avgVals(latestBucket.rows, 13);
+  // Traffic is shared across all rows in the same hour — just take first valid
+  const latestTRow  = latestBucket.rows.find(r => r[3] && r[3] !== '-') || latestBucket.rows[0];
+
+  const formatDate = (dateStr, hour) => {
+    // dateStr is YYYY-MM-DD, convert to DD-MM-YYYY
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]} ${String(hour).padStart(2,'0')}:00`;
+    }
+    return dateStr + ' ' + String(hour).padStart(2,'0') + ':00';
+  };
+
+  // Derive traffic level from score for consistency (don't trust the text field)
+  const scoreToLevel = s => s >= 4 ? 'Very High' : s >= 3 ? 'High' : s >= 2 ? 'Medium' : 'Low';
+  const latestScore = Math.round(num(latestTRow[4]) || 1);
+
+  const latest = {
+    aqi:          Math.round(latestAQI || 0),
+    pm25:         latestPM25 || 0,
+    pm10:         latestPM10 || 0,
+    trafficLevel: scoreToLevel(latestScore),
+    trafficScore: latestScore,
+    datetime:     formatDate(latestBucket.date, latestBucket.hour)
+  };
+
+  // ── Build hourly buckets — group by Date+Hour, average across sources ──
+  const hourlyMap = {};
+  for (const r of data) {
+    const dateStr = r[0];
+    const timeStr = r[1] || '';
+    const hourMatch = timeStr.match(/^(\d{1,2}):/);
+    if (!dateStr || !hourMatch) continue;
+    const hour = parseInt(hourMatch[1]);
+    const key = dateStr + '_' + hour;
+
+    if (!hourlyMap[key]) {
+      hourlyMap[key] = {
+        date: dateStr, hour,
+        pm25vals: [], trafficVals: [], trafficRatioVals: [], aqiVals: []
+      };
+    }
+    const b = hourlyMap[key];
+    if (num(r[5])  !== null) b.pm25vals.push(num(r[5]));
+    if (num(r[4])  !== null) b.trafficVals.push(num(r[4]));
+    if (num(r[2])  !== null) b.trafficRatioVals.push(num(r[2]));
+    if (num(r[13]) !== null) b.aqiVals.push(num(r[13]));
+  }
+
+  const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+  const buckets = Object.values(hourlyMap)
+    .filter(b => b.pm25vals.length > 0)
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return a.hour - b.hour;
+    });
+
+  // ── Last 24 hourly buckets for the trend chart ──
+  const last24buckets = buckets.slice(-24);
+  const last24 = {
+    labels:  last24buckets.map(b => {
+      // b.date is YYYY-MM-DD, convert to DD-MM
+      const parts = b.date.split('-');
+      const dd = parts.length === 3 ? `${parts[2]}-${parts[1]}` : b.date.substring(5);
+      return dd + ' ' + String(b.hour).padStart(2,'0') + ':00';
+    }),
+    pm25:    last24buckets.map(b => parseFloat((avg(b.pm25vals)||0).toFixed(1))),
+    traffic: last24buckets.map(b => parseFloat((avg(b.trafficVals)||1).toFixed(1)))
+  };
+
+  // ── All-time hourly averages (0–23) for risk profile ──
+  const hourGroups = {};
+  for (let h = 0; h < 24; h++) hourGroups[h] = { pm25: [], traffic: [] };
+  for (const b of buckets) {
+    if (b.hour >= 0 && b.hour < 24) {
+      if (b.pm25vals.length)         hourGroups[b.hour].pm25.push(avg(b.pm25vals));
+      if (b.trafficRatioVals.length) hourGroups[b.hour].traffic.push(avg(b.trafficRatioVals));
+    }
+  }
+  const allTimeHourly = {
+    pm25:    Array.from({length:24}, (_,h) => parseFloat((avg(hourGroups[h].pm25) || 25).toFixed(2))),
+    traffic: Array.from({length:24}, (_,h) => parseFloat((avg(hourGroups[h].traffic) || 1.0).toFixed(2)))
+  };
+
+  // ── PM2.5 by traffic level ──
+  const byLevel = {Low:[],Medium:[],High:[],'Very High':[]};
+  for (const r of data) {
+    const lvl = r[3];
+    const p   = num(r[5]);
+    if (byLevel[lvl] !== undefined && p !== null) byLevel[lvl].push(p);
+  }
+  const levelAvg = ['Low','Medium','High','Very High'].map(l =>
+    parseFloat((avg(byLevel[l]) || 0).toFixed(2))
+  );
+
+  // ── Total rows and date range ──
+  const totalRows = data.length;
+  const dateMin   = buckets.length ? buckets[0].date : '';
+  const dateMax   = buckets.length ? buckets[buckets.length-1].date : '';
+
+  return { latest, last24, allTimeHourly, levelAvg, totalRows, dateMin, dateMax };
+}
+
+// ── Determine AQI status ──
+function aqiStatus(aqi) {
+  if (aqi <= 50)  return { label: 'Good', cls: 'status-good', alertCls: 'good' };
+  if (aqi <= 100) return { label: 'Moderate', cls: 'status-moderate', alertCls: 'moderate' };
+  if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', cls: 'status-unhealthy', alertCls: 'unhealthy' };
+  return { label: 'Unhealthy', cls: 'status-unhealthy', alertCls: 'unhealthy' };
+}
+
+function trafficStatus(score) {
+  const labels = ['','Low','Medium','High','Very High'];
+  const clses = ['','status-good','status-moderate','status-unhealthy','status-unhealthy'];
+  return { label: labels[score] || 'Low', cls: clses[score] || 'status-good' };
+}
+
+function pm25Advisory(pm25, traffic) {
+  if (traffic >= 3 && pm25 > 30) return {
+    cls: 'unhealthy',
+    title: 'High Traffic — Elevated PM2.5 Alert',
+    body: 'Peak congestion detected. Keep windows closed. Avoid prolonged outdoor exposure near road corridors. PM2.5 is ' + pm25.toFixed(1) + ' µg/m³ — research-linked to traffic-emission surge.'
+  };
+  if (traffic >= 2 && pm25 > 25) return {
+    cls: 'moderate',
+    title: 'Moderate Traffic — Pollution Rising',
+    body: 'Traffic-linked PM2.5 is elevated at ' + pm25.toFixed(1) + ' µg/m³. Sensitive individuals (asthma, elderly) should limit outdoor activity near main roads.'
+  };
+  return {
+    cls: 'good',
+    title: 'Air Quality Acceptable — Low Traffic',
+    body: 'Current PM2.5 (' + pm25.toFixed(1) + ' µg/m³) and traffic levels are both low. Safe for outdoor activity in residential areas near Kondapur.'
+  };
+}
+
+// ── Populate cards ──
+function populate(latest) {
+  const s = aqiStatus(latest.aqi);
+  const ts = trafficStatus(latest.trafficScore);
+  const adv = pm25Advisory(latest.pm25, latest.trafficScore);
+
+  document.getElementById('valAQI').textContent = latest.aqi;
+  document.getElementById('valPM25').textContent = latest.pm25.toFixed(1);
+  document.getElementById('valPM10').textContent = latest.pm10.toFixed(1);
+  document.getElementById('valTraffic').textContent = latest.trafficLevel;
+  document.getElementById('statusAQI').textContent = s.label;
+  document.getElementById('statusAQI').className = 'metric-status ' + s.cls;
+  document.getElementById('statusPM25').textContent = latest.pm25 <= 12 ? 'Good' : latest.pm25 <= 35.4 ? 'Moderate' : 'Elevated';
+  document.getElementById('statusPM25').className = 'metric-status ' + (latest.pm25 <= 12 ? 'status-good' : latest.pm25 <= 35.4 ? 'status-moderate' : 'status-unhealthy');
+  document.getElementById('statusPM10').textContent = latest.pm10 <= 54 ? 'Good' : 'Moderate';
+  document.getElementById('statusPM10').className = 'metric-status ' + (latest.pm10 <= 54 ? 'status-good' : 'status-moderate');
+  document.getElementById('statusTraffic').textContent = 'Score ' + latest.trafficScore + ' / 4';
+  document.getElementById('statusTraffic').className = 'metric-status ' + ts.cls;
+  document.getElementById('lastUpdated').textContent = 'Last updated: ' + latest.datetime + ' IST';
+
+  const banner = document.getElementById('alertBanner');
+  banner.className = 'alert-banner ' + adv.cls;
+  document.getElementById('alertTitle').textContent = adv.title;
+  document.getElementById('alertBody').textContent = adv.body;
+
+  if (adv.cls === 'good') banner.querySelector('.alert-icon').textContent = '✓';
+  else if (adv.cls === 'moderate') banner.querySelector('.alert-icon').textContent = '⚠';
+  else banner.querySelector('.alert-icon').textContent = '!';
+}
+
+// ── Build charts using live data ──
+function buildCharts(last24, allTimeHourly, levelAvg) {
+  // Destroy any existing chart instances first (for safety)
+  Chart.helpers.each(Chart.instances, c => c.destroy());
+
+  // Trend chart — PM2.5 line + Traffic score bars
+  new Chart(document.getElementById('trendChart'), {
+    data: {
+      labels: last24.labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'PM2.5 (µg/m³)',
+          data: last24.pm25,
+          borderColor: '#4fc3f7',
+          backgroundColor: 'rgba(79,195,247,0.07)',
+          fill: true, tension: 0.4,
+          yAxisID: 'y', pointRadius: 3,
+          pointBackgroundColor: '#4fc3f7', borderWidth: 2
+        },
+        {
+          type: 'bar',
+          label: 'Traffic Score',
+          data: last24.traffic,
+          backgroundColor: last24.traffic.map(v =>
+            v >= 3.5 ? 'rgba(255,107,53,0.55)' :
+            v >= 2.5 ? 'rgba(255,107,53,0.35)' :
+            v >= 1.5 ? 'rgba(255,213,79,0.35)' : 'rgba(0,229,160,0.2)'
+          ),
+          borderRadius: 3, yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a2230',
+          borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+          titleColor: '#e8edf5', bodyColor: '#6b7a94'
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#6b7a94', font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { position: 'left', title: { display: true, text: 'PM2.5 (µg/m³)', color: '#6b7a94', font: { size: 10 } }, ticks: { color: '#6b7a94', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }, min: 5 },
+        y1: { position: 'right', title: { display: true, text: 'Traffic Score (1–4)', color: '#6b7a94', font: { size: 10 } }, ticks: { color: '#6b7a94', font: { size: 10 } }, grid: { drawOnChartArea: false }, min: 0, max: 5 }
+      }
+    }
+  });
+
+  // PM2.5 by traffic level
+  new Chart(document.getElementById('levelChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Low','Medium','High','Very High'],
+      datasets: [{
+        label: 'Avg PM2.5 (µg/m³)',
+        data: levelAvg,
+        backgroundColor: ['rgba(0,229,160,0.5)','rgba(255,213,79,0.5)','rgba(255,107,53,0.5)','rgba(224,64,251,0.5)'],
+        borderColor: ['#00e5a0','#ffd54f','#ff6b35','#e040fb'],
+        borderWidth: 1, borderRadius: 5
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#6b7a94', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#6b7a94', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }, min: 0 }
+      }
+    }
+  });
+
+  // Correlation chart — static research results (these don't change with new data)
+  new Chart(document.getElementById('corrChart'), {
+    type: 'bar',
+    data: {
+      labels: ['NO₂','CO','Noise','SO₂','PM2.5','US-AQI','PM10','TVOC','O₃'],
+      datasets: [{
+        label: 'Pearson r',
+        data: [0.801, 0.692, 0.604, 0.514, 0.511, 0.505, 0.497, 0.348, -0.359],
+        backgroundColor: [0.801,0.692,0.604,0.514,0.511,0.505,0.497,0.348,-0.359].map(v =>
+          v >= 0 ? 'rgba(79,195,247,0.5)' : 'rgba(255,107,53,0.5)'
+        ),
+        borderColor: [0.801,0.692,0.604,0.514,0.511,0.505,0.497,0.348,-0.359].map(v =>
+          v >= 0 ? '#4fc3f7' : '#ff6b35'
+        ),
+        borderWidth: 1, borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { min: -0.5, max: 1.0, ticks: { color: '#6b7a94', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#6b7a94', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+// ── Build risk bars using live all-time hourly data ──
+function buildRiskBarsLive(allTimeHourly) {
+  const container = document.getElementById('riskBars');
+  container.innerHTML = ''; // clear previous
+  const pm25 = allTimeHourly.pm25;
+  const traffic = allTimeHourly.traffic;
+  const maxPM = Math.max(...pm25);
+  const minPM = Math.min(...pm25);
+
+  for (let h = 0; h < 24; h++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'risk-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'risk-bar';
+    const pct = (maxPM > minPM) ? ((pm25[h] - minPM) / (maxPM - minPM)) : 0.5;
+    bar.style.height = Math.round(12 + pct * 48) + 'px';
+    let color;
+    if (traffic[h] >= 1.5 || pm25[h] >= 30) color = '#ff6b35';
+    else if (traffic[h] >= 1.0 || pm25[h] >= 25) color = '#ffd54f';
+    else color = '#00e5a0';
+    bar.style.background = color;
+    bar.style.opacity = '0.75';
+    bar.title = h + ':00  PM2.5=' + pm25[h] + ' µg/m³  Traffic ratio=' + traffic[h];
+    const label = document.createElement('div');
+    label.className = 'risk-hour';
+    label.textContent = h % 3 === 0 ? h + 'h' : '';
+    wrap.appendChild(bar);
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+  }
+}
+
+// ── Show error state if fetch fails ──
+function showError(msg) {
+  document.getElementById('lastUpdated').textContent = 'Data fetch failed — showing cached data';
+  document.getElementById('alertTitle').textContent = 'Connection issue';
+  document.getElementById('alertBody').textContent = msg;
+  document.getElementById('alertBanner').className = 'alert-banner moderate';
+}
+
+// ── Main: fetch live data, process, render ──
+async function initDashboard() {
+  showLoading();
+
+  // Check if Sheet ID has been configured
+  if (SHEET_ID === 'YOUR_SHEET_ID_HERE') {
+    showError('Sheet ID not configured. Open the HTML file and replace YOUR_SHEET_ID_HERE with your Google Sheet ID.');
+    // Still render with fallback static data so the page is not blank
+    renderWithData(getFallbackData());
+    return;
+  }
+
+  try {
+    const res = await fetch(SHEET_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const csvText = await res.text();
+    const rows = parseCSV(csvText);
+    const d = processData(rows);
+    renderWithData(d);
+  } catch (err) {
+    console.error('Fetch error:', err);
+    showError('Could not reach Google Sheets. Showing last known data.');
+    renderWithData(getFallbackData());
+  }
+}
+
+// ── Render all dashboard components from processed data ──
+function renderWithData(d) {
+  const { latest, last24, allTimeHourly, levelAvg, totalRows, dateMin, dateMax } = d;
+
+  // Populate cards
+  populate(latest);
+
+  // Update observation count in the risk strip subtitle
+  const riskSub = document.getElementById('riskSubtitle');
+  if (riskSub && totalRows > 0) {
+    riskSub.textContent = `Based on ${totalRows} logged observations · ${dateMin} – ${dateMax} · hover each bar for hourly detail`;
+  }
+
+  // Risk bars
+  buildRiskBarsLive(allTimeHourly);
+
+  // Charts
+  buildCharts(last24, allTimeHourly, levelAvg);
+}
+
+// ── Fallback static data (shown if sheet is unreachable) ──
+function getFallbackData() {
+  return {
+    latest: { aqi: 87, pm25: 28.3, pm10: 39.5, trafficLevel: 'Medium', trafficScore: 2, datetime: '(offline — last known)' },
+    last24: {
+      labels: ['17:00','18:00','19:00','20:00','21:00','22:00','23:00','00:00','01:00','02:00','03:00','04:00','05:00','06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00'],
+      pm25:   [33.7,35.7,34.4,33.2,30.9,29.4,28.6,21.8,21.8,21.0,21.0,22.9,19.4,19.4,25.6,25.6,26.0,26.1,26.8,27.3,28.9,27.8,28.3,30.6],
+      traffic:[3,4,3,3,2.6,2.4,2,1,1,1,1,1,1,1,1,1,1.6,2,2,2,2.8,2,2,2.8]
+    },
+    allTimeHourly: {
+      pm25:   [21.75,21.76,20.97,24.20,22.85,19.39,19.43,25.58,25.57,26.00,26.05,26.78,27.26,28.91,27.77,28.32,30.62,33.71,34.40,33.16,31.45,30.66,29.36,28.64],
+      traffic:[0.52,0.52,0.52,0.52,0.52,0.52,0.52,0.54,0.61,0.75,0.85,0.93,1.03,1.10,1.16,1.25,1.46,1.73,1.87,1.73,1.61,1.50,1.42,1.37]
+    },
+    levelAvg: [23.82, 28.01, 31.25, 35.61],
+    totalRows: 914, dateMin: '2026-03-28', dateMax: '2026-04-18'
+  };
+}
+
+// ── Boot ──
+initDashboard();
+</script>
+</body>
+</html>
