@@ -447,7 +447,7 @@
     <div class="brand">
       <span class="brand-tag">&#9670; RTP Research Project — MGIT CSE</span>
       <h1>Air<span>Watch</span></h1>
-      <p class="brand-sub">Traffic-correlated air quality monitoring · Gachibowli IT Corridor, Hyderabad</p>
+      <p class="brand-sub">Traffic-correlated air quality monitoring · Kondapur–Gachibowli IT Corridor, Hyderabad</p>
     </div>
     <div class="header-meta">
       <div class="live-badge">
@@ -497,9 +497,23 @@
 
   <!-- Hourly Risk Bar -->
   <div class="risk-section">
-    <div class="risk-title">Hourly pollution risk profile (24 h average — 22 days of data)</div>
-    <div class="risk-sub">Based on 914 logged observations · darker = higher PM2.5 · peak traffic hours highlighted</div>
+    <div class="risk-title">Hourly pollution risk profile (24 h average — based on all collected data)</div>
+    <div class="risk-sub" id="riskSubtitle">Loading observations...</div>
     <div class="risk-bars" id="riskBars"></div>
+    <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#00e5a0;opacity:0.85;"></div>
+        Low risk — PM2.5 &lt; 25 µg/m³, low traffic
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#ffd54f;opacity:0.85;"></div>
+        Moderate risk — PM2.5 25–30 µg/m³ or medium traffic
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);">
+        <div style="width:12px;height:12px;border-radius:2px;background:#ff6b35;opacity:0.85;"></div>
+        High risk — PM2.5 &gt; 30 µg/m³ or heavy traffic
+      </div>
+    </div>
   </div>
 
   <!-- Charts -->
@@ -543,7 +557,7 @@
     </div>
     <div class="insight-card">
       <div class="insight-num" style="color:#ba68c8">914</div>
-      <div class="insight-desc">Total observations · 5 sources · 22 days · Whitefield-Kondapur area</div>
+      <div class="insight-desc">Total observations · 5 sources · 22 days · Kondapur–Gachibowli area</div>
     </div>
   </div>
 
@@ -551,7 +565,7 @@
   <footer>
     <div class="footer-left">
       <strong>Srinivas Konala</strong> · 24261A05R0 · B.Tech CSE Sem 4 · MGIT Hyderabad<br>
-      Mentor: Dr. B Madhava Rao · Data sources updated every hour automatically
+      Data sources updated every hour automatically · RTP Research Project 2025–26
     </div>
     <div class="source-pills">
       <span class="pill">OpenWeatherMap</span>
@@ -621,24 +635,57 @@ function processData(rows) {
   // Column indices: Date(0) Time(1) T_Ratio(2) T_Level(3) T_Score(4)
   // PM25(5) PM10(6) SO2(7) NO2(8) CO(9) O3(10) TVOC(11) Noise(12) AQI(13) Source(14)
 
-  // ── Latest reading ──
-  // Find the most recent row with valid PM2.5 and AQI
-  let latestRow = null;
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (num(data[i][5]) !== null && num(data[i][13]) !== null) {
-      latestRow = data[i];
-      break;
-    }
+  // ── Latest reading — use most recent hour's multi-source average ──
+  // Find the most recent date+hour key that has at least one valid PM2.5 row
+  // We do this AFTER building hourlyMap below, so we collect rows first.
+  // Temporarily collect all rows by date+hour to find the latest bucket.
+  const tempMap = {};
+  for (const r of data) {
+    const dateStr = r[0];
+    const timeStr = r[1] || '';
+    const hourMatch = timeStr.match(/^(\d{1,2}):/);
+    if (!dateStr || !hourMatch) continue;
+    const hour = parseInt(hourMatch[1]);
+    const key = dateStr + '_' + String(hour).padStart(2, '0');
+    if (!tempMap[key]) tempMap[key] = { date: dateStr, hour, time: timeStr, rows: [] };
+    tempMap[key].rows.push(r);
   }
-  if (!latestRow) latestRow = data[data.length - 1];
+  // Sort keys to find the most recent hour
+  const sortedKeys = Object.keys(tempMap).sort();
+  const latestKey  = sortedKeys[sortedKeys.length - 1];
+  const latestBucket = tempMap[latestKey];
+
+  // Average all valid source readings in that bucket
+  const avgVals = (rows, col) => {
+    const vals = rows.map(r => num(r[col])).filter(v => v !== null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const latestPM25  = avgVals(latestBucket.rows, 5);
+  const latestPM10  = avgVals(latestBucket.rows, 6);
+  const latestAQI   = avgVals(latestBucket.rows, 13);
+  // Traffic is shared across all rows in the same hour — just take first valid
+  const latestTRow  = latestBucket.rows.find(r => r[3] && r[3] !== '-') || latestBucket.rows[0];
+
+  const formatDate = (dateStr, hour) => {
+    // dateStr is YYYY-MM-DD, convert to DD-MM-YYYY
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]} ${String(hour).padStart(2,'0')}:00`;
+    }
+    return dateStr + ' ' + String(hour).padStart(2,'0') + ':00';
+  };
+
+  // Derive traffic level from score for consistency (don't trust the text field)
+  const scoreToLevel = s => s >= 4 ? 'Very High' : s >= 3 ? 'High' : s >= 2 ? 'Medium' : 'Low';
+  const latestScore = Math.round(num(latestTRow[4]) || 1);
 
   const latest = {
-    aqi:          Math.round(num(latestRow[13]) || 0),
-    pm25:         num(latestRow[5]) || 0,
-    pm10:         num(latestRow[6]) || 0,
-    trafficLevel: latestRow[3] || 'Low',
-    trafficScore: Math.round(num(latestRow[4]) || 1),
-    datetime:     (latestRow[0] || '') + ' ' + (latestRow[1] || '').substring(0, 5)
+    aqi:          Math.round(latestAQI || 0),
+    pm25:         latestPM25 || 0,
+    pm10:         latestPM10 || 0,
+    trafficLevel: scoreToLevel(latestScore),
+    trafficScore: latestScore,
+    datetime:     formatDate(latestBucket.date, latestBucket.hour)
   };
 
   // ── Build hourly buckets — group by Date+Hour, average across sources ──
@@ -677,8 +724,10 @@ function processData(rows) {
   const last24buckets = buckets.slice(-24);
   const last24 = {
     labels:  last24buckets.map(b => {
-      const d = b.date.substring(5); // MM-DD
-      return d + ' ' + String(b.hour).padStart(2,'0') + ':00';
+      // b.date is YYYY-MM-DD, convert to DD-MM
+      const parts = b.date.split('-');
+      const dd = parts.length === 3 ? `${parts[2]}-${parts[1]}` : b.date.substring(5);
+      return dd + ' ' + String(b.hour).padStart(2,'0') + ':00';
     }),
     pm25:    last24buckets.map(b => parseFloat((avg(b.pm25vals)||0).toFixed(1))),
     traffic: last24buckets.map(b => parseFloat((avg(b.trafficVals)||1).toFixed(1)))
@@ -765,7 +814,7 @@ function populate(latest) {
   document.getElementById('statusPM25').className = 'metric-status ' + (latest.pm25 <= 12 ? 'status-good' : latest.pm25 <= 35.4 ? 'status-moderate' : 'status-unhealthy');
   document.getElementById('statusPM10').textContent = latest.pm10 <= 54 ? 'Good' : 'Moderate';
   document.getElementById('statusPM10').className = 'metric-status ' + (latest.pm10 <= 54 ? 'status-good' : 'status-moderate');
-  document.getElementById('statusTraffic').textContent = ts.label;
+  document.getElementById('statusTraffic').textContent = 'Score ' + latest.trafficScore + ' / 4';
   document.getElementById('statusTraffic').className = 'metric-status ' + ts.cls;
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + latest.datetime + ' IST';
 
@@ -957,9 +1006,9 @@ function renderWithData(d) {
   populate(latest);
 
   // Update observation count in the risk strip subtitle
-  const riskSub = document.querySelector('.risk-section .risk-sub');
+  const riskSub = document.getElementById('riskSubtitle');
   if (riskSub && totalRows > 0) {
-    riskSub.textContent = `Based on ${totalRows} logged observations · ${dateMin} – ${dateMax}`;
+    riskSub.textContent = `Based on ${totalRows} logged observations · ${dateMin} – ${dateMax} · hover each bar for hourly detail`;
   }
 
   // Risk bars
